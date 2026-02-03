@@ -8,7 +8,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const { name, guestIds } = await request.json();
-  const group = await createGroup(name, guestIds);
+  const { name, invitedBy, guestIds } = await request.json();
+  const group = await createGroup(name, invitedBy ?? null, guestIds);
   return NextResponse.json(group);
 }

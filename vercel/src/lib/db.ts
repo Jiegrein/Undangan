@@ -7,8 +7,25 @@ export async function initDb() {
     CREATE TABLE IF NOT EXISTS guest_groups (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
+      invited_by VARCHAR(100),
       created_at TIMESTAMP DEFAULT NOW()
     )
+  `;
+
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'guest_groups' AND column_name = 'invited_by'
+      ) THEN
+        ALTER TABLE guest_groups ADD COLUMN invited_by VARCHAR(100);
+      END IF;
+    END $$;
+  `;
+
+  await sql`
+    UPDATE guest_groups SET invited_by = 'Abed' WHERE invited_by IS NULL
   `;
 
   await sql`
@@ -66,6 +83,7 @@ export async function deleteGuest(id: number) {
 export interface Group {
   id: number;
   name: string;
+  invited_by: string | null;
   created_at: string;
 }
 
@@ -96,10 +114,10 @@ export async function getGroups(): Promise<GroupWithMembers[]> {
   });
 }
 
-export async function createGroup(name: string, guestIds?: number[]): Promise<GroupWithMembers> {
+export async function createGroup(name: string, invitedBy: string | null, guestIds?: number[]): Promise<GroupWithMembers> {
   const rows = await sql`
-    INSERT INTO guest_groups (name)
-    VALUES (${name})
+    INSERT INTO guest_groups (name, invited_by)
+    VALUES (${name}, ${invitedBy})
     RETURNING *
   `;
   const group = rows[0] as Group;

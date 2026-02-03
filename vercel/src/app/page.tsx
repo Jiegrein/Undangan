@@ -13,21 +13,22 @@ interface Guest {
 interface Group {
   id: number;
   name: string;
+  invited_by: string | null;
   members: Guest[];
   total_pax: number;
 }
 
-const INVITED_BY_OPTIONS = ['Abed', 'Fanny', 'Papa', 'Mama', 'Mama Fanny'];
+const INVITED_BY_OPTIONS = ['Papa', 'Mama', 'Fanny', 'Abed', 'Mama Fanny'];
 
 export default function Home() {
   const [guests, setGuests] = useState<Guest[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [name, setName] = useState('');
-  const [pax, setPax] = useState(1);
+  const [pax, setPax] = useState<number | ''>('');
   const [invitedBy, setInvitedBy] = useState(INVITED_BY_OPTIONS[0]);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
-  const [editPax, setEditPax] = useState(1);
+  const [editPax, setEditPax] = useState<number | ''>('');
   const [editInvitedBy, setEditInvitedBy] = useState('');
 
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -37,7 +38,9 @@ export default function Home() {
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const [editGroupName, setEditGroupName] = useState('');
   const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(new Set());
+  const [collapsedInvitedBy, setCollapsedInvitedBy] = useState<Set<string>>(new Set());
   const [showAddToGroupModal, setShowAddToGroupModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -59,15 +62,16 @@ export default function Home() {
 
   const addGuest = async () => {
     if (!name.trim()) return;
+    const finalPax = pax === '' || pax < 1 ? 1 : pax;
     const res = await fetch('/api/guests', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name.trim(), pax, invitedBy })
+      body: JSON.stringify({ name: name.trim(), pax: finalPax, invitedBy })
     });
     const newGuest = await res.json();
     setGuests([...guests, newGuest]);
     setName('');
-    setPax(1);
+    setPax('');
   };
 
   const startEdit = (guest: Guest) => {
@@ -77,23 +81,33 @@ export default function Home() {
     setEditInvitedBy(guest.invited_by);
   };
 
+  const handlePaxChange = (value: string, setter: (val: number | '') => void) => {
+    if (value === '') {
+      setter('');
+    } else {
+      const num = parseInt(value, 10);
+      setter(isNaN(num) ? '' : num);
+    }
+  };
+
   const saveEdit = async () => {
     if (!editingId || !editName.trim()) return;
+    const finalPax = editPax === '' || editPax < 1 ? 1 : editPax;
     await fetch(`/api/guests/${editingId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: editName.trim(), pax: editPax, invitedBy: editInvitedBy })
+      body: JSON.stringify({ name: editName.trim(), pax: finalPax, invitedBy: editInvitedBy })
     });
     setGuests(guests.map(g =>
-      g.id === editingId ? { ...g, name: editName.trim(), pax: editPax, invited_by: editInvitedBy } : g
+      g.id === editingId ? { ...g, name: editName.trim(), pax: finalPax, invited_by: editInvitedBy } : g
     ));
     setGroups(groups.map(group => ({
       ...group,
       members: group.members.map(m =>
-        m.id === editingId ? { ...m, name: editName.trim(), pax: editPax, invited_by: editInvitedBy } : m
+        m.id === editingId ? { ...m, name: editName.trim(), pax: finalPax, invited_by: editInvitedBy } : m
       ),
       total_pax: group.members.reduce((sum, m) =>
-        sum + (m.id === editingId ? editPax : m.pax), 0
+        sum + (m.id === editingId ? finalPax : m.pax), 0
       )
     })));
     setEditingId(null);
@@ -129,10 +143,21 @@ export default function Home() {
 
   const createGroup = async () => {
     if (!newGroupName.trim() || selectedGuestIds.size === 0) return;
+
+    const selectedGuests = guests.filter(g => selectedGuestIds.has(g.id));
+    const inviters = [...new Set(selectedGuests.map(g => g.invited_by))];
+
+    if (inviters.length > 1) {
+      alert('Semua tamu dalam satu grup harus dari pengundang yang sama!');
+      return;
+    }
+
+    const groupInvitedBy = inviters[0];
+
     const res = await fetch('/api/groups', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newGroupName.trim(), guestIds: Array.from(selectedGuestIds) })
+      body: JSON.stringify({ name: newGroupName.trim(), invitedBy: groupInvitedBy, guestIds: Array.from(selectedGuestIds) })
     });
     const newGroup = await res.json();
     setGroups([...groups, newGroup]);
@@ -147,6 +172,16 @@ export default function Home() {
 
   const addToExistingGroup = async (groupId: number) => {
     if (selectedGuestIds.size === 0) return;
+
+    const targetGroup = groups.find(g => g.id === groupId);
+    const selectedGuests = guests.filter(g => selectedGuestIds.has(g.id));
+    const selectedInviters = [...new Set(selectedGuests.map(g => g.invited_by))];
+
+    if (targetGroup?.invited_by && selectedInviters.some(inv => inv !== targetGroup.invited_by)) {
+      alert('Tamu harus dari pengundang yang sama dengan grup!');
+      return;
+    }
+
     const res = await fetch(`/api/groups/${groupId}/members`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -210,6 +245,16 @@ export default function Home() {
     setCollapsedGroups(newCollapsed);
   };
 
+  const toggleInvitedByCollapse = (invitedBy: string) => {
+    const newCollapsed = new Set(collapsedInvitedBy);
+    if (newCollapsed.has(invitedBy)) {
+      newCollapsed.delete(invitedBy);
+    } else {
+      newCollapsed.add(invitedBy);
+    }
+    setCollapsedInvitedBy(newCollapsed);
+  };
+
   const removeFromGroup = async (guestId: number) => {
     await fetch(`/api/groups/0/members`, {
       method: 'DELETE',
@@ -252,9 +297,9 @@ export default function Home() {
           />
           <input
             type="number"
-            min="1"
             value={editPax}
-            onChange={e => setEditPax(Number(e.target.value) || 1)}
+            onChange={e => handlePaxChange(e.target.value, setEditPax)}
+            placeholder="1"
             className="w-14 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
           <select
@@ -320,14 +365,14 @@ export default function Home() {
     </div>
   );
 
-  const renderGroupTree = (group: Group) => {
+  const renderGroupTree = (group: Group, nested = false) => {
     const members = group.members;
-    const isCollapsed = collapsedGroups.has(group.id);
+    const isCollapsed = searchQuery.trim() ? false : collapsedGroups.has(group.id);
 
     return (
-      <div key={group.id} className="bg-gray-800 rounded-xl overflow-hidden mb-4">
+      <div key={group.id} className={`bg-gray-800 rounded-xl overflow-hidden ${nested ? 'mb-2' : 'mb-4'}`}>
         <div
-          className="flex items-center justify-between p-4 border-b border-gray-700 bg-gray-750 cursor-pointer"
+          className={`flex items-center justify-between p-3 border-b border-gray-700 ${nested ? 'bg-gray-700' : 'bg-gray-750'} cursor-pointer`}
           onClick={() => editingGroupId !== group.id && toggleGroupCollapse(group.id)}
         >
           {editingGroupId === group.id ? (
@@ -388,6 +433,68 @@ export default function Home() {
     );
   };
 
+  const renderInvitedBySection = (inviter: string) => {
+    const query = searchQuery.toLowerCase().trim();
+
+    const inviterGroups = groups
+      .filter(g => g.invited_by === inviter)
+      .map(g => ({
+        ...g,
+        members: query
+          ? g.members.filter(m => m.name.toLowerCase().includes(query))
+          : g.members
+      }))
+      .filter(g => !query || g.members.length > 0 || g.name.toLowerCase().includes(query));
+
+    const inviterUngroupedGuests = ungroupedGuests.filter(
+      g => g.invited_by === inviter && (!query || g.name.toLowerCase().includes(query))
+    );
+
+    const totalInviterPax =
+      inviterGroups.reduce((sum, g) => sum + g.members.reduce((s, m) => s + m.pax, 0), 0) +
+      inviterUngroupedGuests.reduce((sum, g) => sum + g.pax, 0);
+
+    if (inviterGroups.length === 0 && inviterUngroupedGuests.length === 0) {
+      return null;
+    }
+
+    const isCollapsed = query ? false : collapsedInvitedBy.has(inviter);
+
+    return (
+      <div key={inviter} className="mb-4">
+        <div
+          className="flex items-center justify-between p-4 bg-gray-800 rounded-xl cursor-pointer"
+          onClick={() => toggleInvitedByCollapse(inviter)}
+        >
+          <div className="flex items-center gap-2">
+            <span className={`text-gray-400 transition-transform ${isCollapsed ? '' : 'rotate-90'}`}>
+              ▶
+            </span>
+            <span className="text-lg font-semibold text-white">{inviter}</span>
+          </div>
+          <span className="px-3 py-1 bg-emerald-900/50 text-emerald-300 rounded-full text-sm font-medium">
+            {totalInviterPax} pax
+          </span>
+        </div>
+
+        {!isCollapsed && (
+          <div className="mt-2 ml-4 space-y-2">
+            {inviterGroups.map(group => renderGroupTree(group, true))}
+
+            {inviterUngroupedGuests.length > 0 && (
+              <div className="bg-gray-800 rounded-xl overflow-hidden">
+                <div className="px-4 py-2 bg-gray-750 border-b border-gray-700">
+                  <span className="text-sm text-gray-400">Tamu Lainnya</span>
+                </div>
+                {inviterUngroupedGuests.map(guest => renderGuestRow(guest))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="max-w-xl mx-auto p-4">
       <h1 className="text-2xl font-bold text-center text-white mb-6">Daftar Undangan</h1>
@@ -403,10 +510,10 @@ export default function Home() {
         />
         <input
           type="number"
-          min="1"
           value={pax}
-          onChange={e => setPax(Number(e.target.value) || 1)}
+          onChange={e => handlePaxChange(e.target.value, setPax)}
           onKeyDown={e => e.key === 'Enter' && addGuest()}
+          placeholder="1"
           className="w-20 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
         />
         <select
@@ -433,18 +540,19 @@ export default function Home() {
         </div>
       )}
 
-      {groups.length > 0 && (
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold text-gray-300 mb-3">Grup</h2>
-          {groups.map(renderGroupTree)}
-        </div>
+      {guests.length > 0 && (
+        <input
+          type="text"
+          placeholder="Cari nama..."
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-4"
+        />
       )}
 
-      <div>
-        <div className="flex justify-between items-center mb-3">
-          <h2 className="text-lg font-semibold text-gray-300">
-            {groups.length > 0 ? 'Tamu Lainnya' : 'Daftar Tamu'}
-          </h2>
+      {guests.length > 0 && (
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-semibold text-gray-300">Daftar Tamu</h2>
           {ungroupedGuests.length > 0 && (
             <button
               onClick={() => isSelectionMode ? cancelSelection() : setIsSelectionMode(true)}
@@ -458,17 +566,17 @@ export default function Home() {
             </button>
           )}
         </div>
+      )}
 
+      {guests.length === 0 ? (
         <div className="bg-gray-800 rounded-xl overflow-hidden">
-          {ungroupedGuests.length === 0 ? (
-            <div className="text-center py-10 text-gray-500">
-              {guests.length === 0 ? 'Belum ada tamu' : 'Semua tamu sudah dalam grup'}
-            </div>
-          ) : (
-            ungroupedGuests.map(guest => renderGuestRow(guest))
-          )}
+          <div className="text-center py-10 text-gray-500">
+            Belum ada tamu
+          </div>
         </div>
-      </div>
+      ) : (
+        INVITED_BY_OPTIONS.map(inviter => renderInvitedBySection(inviter))
+      )}
 
       {isSelectionMode && selectedGuestIds.size > 0 && (
         <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 border border-gray-700 rounded-xl p-4 shadow-xl flex items-center gap-4">
