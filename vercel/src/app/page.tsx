@@ -69,16 +69,17 @@ export default function Home() {
   const totalPax = guests.reduce((sum, g) => sum + g.pax, 0);
 
   return (
-    <div className="container">
-      <h1>Daftar Undangan</h1>
+    <div className="max-w-xl mx-auto p-4">
+      <h1 className="text-2xl font-bold text-center text-white mb-6">Daftar Undangan</h1>
 
-      <div className="add-form">
+      <div className="flex flex-wrap gap-2 mb-4">
         <input
           type="text"
           placeholder="Nama"
           value={name}
           onChange={e => setName(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && addGuest()}
+          className="flex-1 min-w-[120px] px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
         />
         <input
           type="number"
@@ -86,64 +87,101 @@ export default function Home() {
           value={pax}
           onChange={e => setPax(Number(e.target.value) || 1)}
           onKeyDown={e => e.key === 'Enter' && addGuest()}
+          className="w-20 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
         />
-        <select value={invitedBy} onChange={e => setInvitedBy(e.target.value)}>
+        <select
+          value={invitedBy}
+          onChange={e => setInvitedBy(e.target.value)}
+          className="px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        >
           {INVITED_BY_OPTIONS.map(opt => (
             <option key={opt} value={opt}>{opt}</option>
           ))}
         </select>
-        <button onClick={addGuest}>Tambah</button>
+        <button
+          onClick={addGuest}
+          className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors"
+        >
+          Tambah
+        </button>
       </div>
 
       {guests.length > 0 && (
-        <div className="total">
-          <span>Total Tamu</span>
-          <span className="total-number">{totalPax}</span>
+        <div className="flex justify-between items-center p-4 bg-gray-800 rounded-xl mb-4">
+          <span className="text-gray-300">Total Tamu</span>
+          <span className="text-3xl font-bold text-emerald-400">{totalPax}</span>
         </div>
       )}
 
-      <div className="guest-list">
+      <div className="bg-gray-800 rounded-xl overflow-hidden">
         {guests.length === 0 ? (
-          <div className="empty">Belum ada tamu</div>
+          <div className="text-center py-10 text-gray-500">Belum ada tamu</div>
         ) : (
           guests.map(guest => (
-            <div key={guest.id} className={`guest-item ${editingId === guest.id ? 'editing' : ''}`}>
+            <div
+              key={guest.id}
+              className={`flex flex-wrap items-center gap-3 p-4 border-b border-gray-700 last:border-b-0 ${editingId === guest.id ? 'bg-gray-750' : ''}`}
+            >
               {editingId === guest.id ? (
                 <>
                   <input
-                    className="name-input"
                     value={editName}
                     onChange={e => setEditName(e.target.value)}
+                    className="flex-1 min-w-[100px] px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                   <input
-                    className="pax-input"
                     type="number"
                     min="1"
                     value={editPax}
                     onChange={e => setEditPax(Number(e.target.value) || 1)}
+                    className="w-16 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                   <select
-                    className="invitedby-select"
                     value={editInvitedBy}
                     onChange={e => setEditInvitedBy(e.target.value)}
+                    className="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
                     {INVITED_BY_OPTIONS.map(opt => (
                       <option key={opt} value={opt}>{opt}</option>
                     ))}
                   </select>
-                  <div className="actions">
-                    <button className="btn btn-save" onClick={saveEdit}>OK</button>
-                    <button className="btn btn-cancel" onClick={() => setEditingId(null)}>X</button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={saveEdit}
+                      className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors"
+                    >
+                      OK
+                    </button>
+                    <button
+                      onClick={() => setEditingId(null)}
+                      className="px-3 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded transition-colors"
+                    >
+                      X
+                    </button>
                   </div>
                 </>
               ) : (
                 <>
-                  <span className="guest-name">{guest.name}</span>
-                  <span className="guest-pax">{guest.pax} pax</span>
-                  <span className="guest-invitedby">{guest.invited_by}</span>
-                  <div className="actions">
-                    <button className="btn btn-edit" onClick={() => startEdit(guest)}>Edit</button>
-                    <button className="btn btn-delete" onClick={() => deleteGuest(guest.id)}>Hapus</button>
+                  <span className="flex-1 text-white">{guest.name}</span>
+                  <span className="px-3 py-1 bg-blue-900/50 text-blue-300 rounded-full text-sm">
+                    {guest.pax} pax
+                  </span>
+                  <span className="px-3 py-1 bg-orange-900/50 text-orange-300 rounded-full text-sm">
+                    {guest.invited_by}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => startEdit(guest)}
+                      className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => deleteGuest(guest.id)}
+                      className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
+                    >
+                      Hapus
+                    </button>
                   </div>
                 </>
               )}
