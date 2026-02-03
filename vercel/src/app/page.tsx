@@ -145,7 +145,7 @@ export default function Home() {
     if (!newGroupName.trim() || selectedGuestIds.size === 0) return;
 
     const selectedGuests = guests.filter(g => selectedGuestIds.has(g.id));
-    const inviters = [...new Set(selectedGuests.map(g => g.invited_by))];
+    const inviters = Array.from(new Set(selectedGuests.map(g => g.invited_by)));
 
     if (inviters.length > 1) {
       alert('Semua tamu dalam satu grup harus dari pengundang yang sama!');
@@ -175,7 +175,7 @@ export default function Home() {
 
     const targetGroup = groups.find(g => g.id === groupId);
     const selectedGuests = guests.filter(g => selectedGuestIds.has(g.id));
-    const selectedInviters = [...new Set(selectedGuests.map(g => g.invited_by))];
+    const selectedInviters = Array.from(new Set(selectedGuests.map(g => g.invited_by)));
 
     if (targetGroup?.invited_by && selectedInviters.some(inv => inv !== targetGroup.invited_by)) {
       alert('Tamu harus dari pengundang yang sama dengan grup!');
