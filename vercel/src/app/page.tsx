@@ -136,7 +136,7 @@ export default function Home() {
     });
     const newGroup = await res.json();
     setGroups([...groups, newGroup]);
-    setCollapsedGroups(new Set([...collapsedGroups, newGroup.id]));
+    setCollapsedGroups(new Set([...Array.from(collapsedGroups), newGroup.id]));
     setGuests(guests.map(g =>
       selectedGuestIds.has(g.id) ? { ...g, group_id: newGroup.id } : g
     ));
