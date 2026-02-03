@@ -7,12 +7,21 @@ interface Guest {
   name: string;
   pax: number;
   invited_by: string;
+  group_id: number | null;
+}
+
+interface Group {
+  id: number;
+  name: string;
+  members: Guest[];
+  total_pax: number;
 }
 
 const INVITED_BY_OPTIONS = ['Abed', 'Fanny', 'Papa', 'Mama', 'Mama Fanny'];
 
 export default function Home() {
   const [guests, setGuests] = useState<Guest[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [name, setName] = useState('');
   const [pax, setPax] = useState(1);
   const [invitedBy, setInvitedBy] = useState(INVITED_BY_OPTIONS[0]);
@@ -21,12 +30,31 @@ export default function Home() {
   const [editPax, setEditPax] = useState(1);
   const [editInvitedBy, setEditInvitedBy] = useState('');
 
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedGuestIds, setSelectedGuestIds] = useState<Set<number>>(new Set());
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
+  const [editGroupName, setEditGroupName] = useState('');
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(new Set());
+  const [showAddToGroupModal, setShowAddToGroupModal] = useState(false);
+
   useEffect(() => {
-    fetch('/api/guests')
-      .then(res => res.json())
-      .then(setGuests)
-      .catch(console.error);
+    fetchData();
   }, []);
+
+  const fetchData = async () => {
+    const [guestsRes, groupsRes] = await Promise.all([
+      fetch('/api/guests'),
+      fetch('/api/groups')
+    ]);
+    const [guestsData, groupsData] = await Promise.all([
+      guestsRes.json(),
+      groupsRes.json()
+    ]);
+    setGuests(guestsData);
+    setGroups(groupsData);
+  };
 
   const addGuest = async () => {
     if (!name.trim()) return;
@@ -58,15 +86,303 @@ export default function Home() {
     setGuests(guests.map(g =>
       g.id === editingId ? { ...g, name: editName.trim(), pax: editPax, invited_by: editInvitedBy } : g
     ));
+    setGroups(groups.map(group => ({
+      ...group,
+      members: group.members.map(m =>
+        m.id === editingId ? { ...m, name: editName.trim(), pax: editPax, invited_by: editInvitedBy } : m
+      ),
+      total_pax: group.members.reduce((sum, m) =>
+        sum + (m.id === editingId ? editPax : m.pax), 0
+      )
+    })));
     setEditingId(null);
   };
 
-  const deleteGuest = async (id: number) => {
+  const handleDeleteGuest = async (id: number) => {
     await fetch(`/api/guests/${id}`, { method: 'DELETE' });
     setGuests(guests.filter(g => g.id !== id));
+    setGroups(groups.map(group => {
+      const newMembers = group.members.filter(m => m.id !== id);
+      return {
+        ...group,
+        members: newMembers,
+        total_pax: newMembers.reduce((sum, m) => sum + m.pax, 0)
+      };
+    }).filter(g => g.members.length > 0));
   };
 
+  const toggleSelection = (id: number) => {
+    const newSelected = new Set(selectedGuestIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedGuestIds(newSelected);
+  };
+
+  const cancelSelection = () => {
+    setIsSelectionMode(false);
+    setSelectedGuestIds(new Set());
+  };
+
+  const createGroup = async () => {
+    if (!newGroupName.trim() || selectedGuestIds.size === 0) return;
+    const res = await fetch('/api/groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newGroupName.trim(), guestIds: Array.from(selectedGuestIds) })
+    });
+    const newGroup = await res.json();
+    setGroups([...groups, newGroup]);
+    setGuests(guests.map(g =>
+      selectedGuestIds.has(g.id) ? { ...g, group_id: newGroup.id } : g
+    ));
+    setShowGroupModal(false);
+    setNewGroupName('');
+    cancelSelection();
+  };
+
+  const addToExistingGroup = async (groupId: number) => {
+    if (selectedGuestIds.size === 0) return;
+    const res = await fetch(`/api/groups/${groupId}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guestIds: Array.from(selectedGuestIds) })
+    });
+    const updatedMembers = await res.json();
+
+    setGroups(groups.map(g => {
+      if (g.id === groupId) {
+        return {
+          ...g,
+          members: updatedMembers,
+          total_pax: updatedMembers.reduce((sum: number, m: Guest) => sum + m.pax, 0)
+        };
+      }
+      return g;
+    }));
+    setGuests(guests.map(g =>
+      selectedGuestIds.has(g.id) ? { ...g, group_id: groupId } : g
+    ));
+    setShowAddToGroupModal(false);
+    cancelSelection();
+  };
+
+  const startEditGroup = (group: Group) => {
+    setEditingGroupId(group.id);
+    setEditGroupName(group.name);
+  };
+
+  const saveGroupEdit = async () => {
+    if (!editingGroupId || !editGroupName.trim()) return;
+    await fetch(`/api/groups/${editingGroupId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: editGroupName.trim() })
+    });
+    setGroups(groups.map(g =>
+      g.id === editingGroupId ? { ...g, name: editGroupName.trim() } : g
+    ));
+    setEditingGroupId(null);
+  };
+
+  const deleteGroup = async (id: number) => {
+    const group = groups.find(g => g.id === id);
+    await fetch(`/api/groups/${id}`, { method: 'DELETE' });
+    setGroups(groups.filter(g => g.id !== id));
+    if (group) {
+      setGuests(guests.map(g =>
+        group.members.some(m => m.id === g.id) ? { ...g, group_id: null } : g
+      ));
+    }
+  };
+
+  const toggleGroupCollapse = (groupId: number) => {
+    const newCollapsed = new Set(collapsedGroups);
+    if (newCollapsed.has(groupId)) {
+      newCollapsed.delete(groupId);
+    } else {
+      newCollapsed.add(groupId);
+    }
+    setCollapsedGroups(newCollapsed);
+  };
+
+  const removeFromGroup = async (guestId: number) => {
+    await fetch(`/api/groups/0/members`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guestIds: [guestId] })
+    });
+    setGuests(guests.map(g => g.id === guestId ? { ...g, group_id: null } : g));
+    setGroups(groups.map(group => {
+      const newMembers = group.members.filter(m => m.id !== guestId);
+      return {
+        ...group,
+        members: newMembers,
+        total_pax: newMembers.reduce((sum, m) => sum + m.pax, 0)
+      };
+    }).filter(g => g.members.length > 0));
+  };
+
+  const ungroupedGuests = guests.filter(g => g.group_id === null);
   const totalPax = guests.reduce((sum, g) => sum + g.pax, 0);
+
+  const renderGuestRow = (guest: Guest, inGroup = false) => (
+    <div
+      key={guest.id}
+      className={`flex flex-wrap items-center gap-3 p-4 border-b border-gray-700 last:border-b-0 ${editingId === guest.id ? 'bg-gray-750' : ''}`}
+    >
+      {isSelectionMode && !inGroup && (
+        <input
+          type="checkbox"
+          checked={selectedGuestIds.has(guest.id)}
+          onChange={() => toggleSelection(guest.id)}
+          className="w-5 h-5 accent-emerald-500"
+        />
+      )}
+      {editingId === guest.id ? (
+        <>
+          <input
+            value={editName}
+            onChange={e => setEditName(e.target.value)}
+            className="flex-1 min-w-[100px] px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          <input
+            type="number"
+            min="1"
+            value={editPax}
+            onChange={e => setEditPax(Number(e.target.value) || 1)}
+            className="w-16 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          <select
+            value={editInvitedBy}
+            onChange={e => setEditInvitedBy(e.target.value)}
+            className="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            {INVITED_BY_OPTIONS.map(opt => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+          <div className="flex gap-2">
+            <button
+              onClick={saveEdit}
+              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors"
+            >
+              OK
+            </button>
+            <button
+              onClick={() => setEditingId(null)}
+              className="px-3 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded transition-colors"
+            >
+              X
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <span className="flex-1 text-white">{guest.name}</span>
+          <span className="px-3 py-1 bg-blue-900/50 text-blue-300 rounded-full text-sm">
+            {guest.pax} pax
+          </span>
+          <span className="px-3 py-1 bg-orange-900/50 text-orange-300 rounded-full text-sm">
+            {guest.invited_by}
+          </span>
+          <div className="flex gap-2">
+            {inGroup && (
+              <button
+                onClick={() => removeFromGroup(guest.id)}
+                className="px-3 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded transition-colors text-sm"
+                title="Keluarkan dari grup"
+              >
+                X
+              </button>
+            )}
+            <button
+              onClick={() => startEdit(guest)}
+              className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+            >
+              Edit
+            </button>
+            <button
+              onClick={() => handleDeleteGuest(guest.id)}
+              className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
+            >
+              Hapus
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  const renderGroupTree = (group: Group) => {
+    const members = group.members;
+    const isCollapsed = collapsedGroups.has(group.id);
+
+    return (
+      <div key={group.id} className="bg-gray-800 rounded-xl overflow-hidden mb-4">
+        <div
+          className="flex items-center justify-between p-4 border-b border-gray-700 bg-gray-750 cursor-pointer"
+          onClick={() => editingGroupId !== group.id && toggleGroupCollapse(group.id)}
+        >
+          {editingGroupId === group.id ? (
+            <div className="flex items-center gap-2 flex-1" onClick={e => e.stopPropagation()}>
+              <input
+                value={editGroupName}
+                onChange={e => setEditGroupName(e.target.value)}
+                className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <button
+                onClick={saveGroupEdit}
+                className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors"
+              >
+                OK
+              </button>
+              <button
+                onClick={() => setEditingGroupId(null)}
+                className="px-3 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded transition-colors"
+              >
+                X
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-3">
+                <span className={`text-gray-400 transition-transform ${isCollapsed ? '' : 'rotate-90'}`}>
+                  ▶
+                </span>
+                <span className="text-lg font-semibold text-white">{group.name}</span>
+                <span className="text-gray-400 text-sm">({members.length})</span>
+              </div>
+              <div className="flex items-center gap-3" onClick={e => e.stopPropagation()}>
+                <span className="px-3 py-1 bg-emerald-900/50 text-emerald-300 rounded-full text-sm">
+                  {group.total_pax} pax
+                </span>
+                <button
+                  onClick={() => startEditGroup(group)}
+                  className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-sm"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => deleteGroup(group.id)}
+                  className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors text-sm"
+                >
+                  Hapus
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+        {!isCollapsed && (
+          <div>
+            {members.map(member => renderGuestRow(member, true))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="max-w-xl mx-auto p-4">
@@ -113,82 +429,129 @@ export default function Home() {
         </div>
       )}
 
-      <div className="bg-gray-800 rounded-xl overflow-hidden">
-        {guests.length === 0 ? (
-          <div className="text-center py-10 text-gray-500">Belum ada tamu</div>
-        ) : (
-          guests.map(guest => (
-            <div
-              key={guest.id}
-              className={`flex flex-wrap items-center gap-3 p-4 border-b border-gray-700 last:border-b-0 ${editingId === guest.id ? 'bg-gray-750' : ''}`}
+      {groups.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold text-gray-300 mb-3">Grup</h2>
+          {groups.map(renderGroupTree)}
+        </div>
+      )}
+
+      <div>
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-lg font-semibold text-gray-300">
+            {groups.length > 0 ? 'Tamu Lainnya' : 'Daftar Tamu'}
+          </h2>
+          {ungroupedGuests.length > 0 && (
+            <button
+              onClick={() => isSelectionMode ? cancelSelection() : setIsSelectionMode(true)}
+              className={`px-4 py-2 rounded-lg transition-colors ${
+                isSelectionMode
+                  ? 'bg-gray-600 hover:bg-gray-500 text-white'
+                  : 'bg-purple-600 hover:bg-purple-700 text-white'
+              }`}
             >
-              {editingId === guest.id ? (
-                <>
-                  <input
-                    value={editName}
-                    onChange={e => setEditName(e.target.value)}
-                    className="flex-1 min-w-[100px] px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  <input
-                    type="number"
-                    min="1"
-                    value={editPax}
-                    onChange={e => setEditPax(Number(e.target.value) || 1)}
-                    className="w-16 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  <select
-                    value={editInvitedBy}
-                    onChange={e => setEditInvitedBy(e.target.value)}
-                    className="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    {INVITED_BY_OPTIONS.map(opt => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={saveEdit}
-                      className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors"
-                    >
-                      OK
-                    </button>
-                    <button
-                      onClick={() => setEditingId(null)}
-                      className="px-3 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded transition-colors"
-                    >
-                      X
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <span className="flex-1 text-white">{guest.name}</span>
-                  <span className="px-3 py-1 bg-blue-900/50 text-blue-300 rounded-full text-sm">
-                    {guest.pax} pax
-                  </span>
-                  <span className="px-3 py-1 bg-orange-900/50 text-orange-300 rounded-full text-sm">
-                    {guest.invited_by}
-                  </span>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => startEdit(guest)}
-                      className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => deleteGuest(guest.id)}
-                      className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
-                    >
-                      Hapus
-                    </button>
-                  </div>
-                </>
-              )}
+              {isSelectionMode ? 'Batal' : 'Pilih'}
+            </button>
+          )}
+        </div>
+
+        <div className="bg-gray-800 rounded-xl overflow-hidden">
+          {ungroupedGuests.length === 0 ? (
+            <div className="text-center py-10 text-gray-500">
+              {guests.length === 0 ? 'Belum ada tamu' : 'Semua tamu sudah dalam grup'}
             </div>
-          ))
-        )}
+          ) : (
+            ungroupedGuests.map(guest => renderGuestRow(guest))
+          )}
+        </div>
       </div>
+
+      {isSelectionMode && selectedGuestIds.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 border border-gray-700 rounded-xl p-4 shadow-xl flex items-center gap-4">
+          <span className="text-white">{selectedGuestIds.size} dipilih</span>
+          <button
+            onClick={() => setShowGroupModal(true)}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
+          >
+            Buat Grup
+          </button>
+          {groups.length > 0 && (
+            <button
+              onClick={() => setShowAddToGroupModal(true)}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            >
+              Tambah ke Grup
+            </button>
+          )}
+          <button
+            onClick={cancelSelection}
+            className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition-colors"
+          >
+            Batal
+          </button>
+        </div>
+      )}
+
+      {showGroupModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-gray-800 rounded-xl p-6 w-full max-w-sm">
+            <h3 className="text-xl font-semibold text-white mb-4">Buat Grup Baru</h3>
+            <input
+              type="text"
+              placeholder="Nama grup"
+              value={newGroupName}
+              onChange={e => setNewGroupName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && createGroup()}
+              autoFocus
+              className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-4"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={createGroup}
+                disabled={!newGroupName.trim()}
+                className="flex-1 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+              >
+                Buat
+              </button>
+              <button
+                onClick={() => {
+                  setShowGroupModal(false);
+                  setNewGroupName('');
+                }}
+                className="flex-1 px-4 py-3 bg-gray-600 hover:bg-gray-500 text-white font-medium rounded-lg transition-colors"
+              >
+                Batal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddToGroupModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-gray-800 rounded-xl p-6 w-full max-w-sm">
+            <h3 className="text-xl font-semibold text-white mb-4">Pilih Grup</h3>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {groups.map(group => (
+                <button
+                  key={group.id}
+                  onClick={() => addToExistingGroup(group.id)}
+                  className="w-full px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-left flex justify-between items-center"
+                >
+                  <span>{group.name}</span>
+                  <span className="text-gray-400 text-sm">{group.members.length} anggota</span>
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowAddToGroupModal(false)}
+              className="w-full mt-4 px-4 py-3 bg-gray-600 hover:bg-gray-500 text-white font-medium rounded-lg transition-colors"
+            >
+              Batal
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
