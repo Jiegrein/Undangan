@@ -1,0 +1,19 @@
+services:
+  backend:
+    build: ./backend
+    volumes:
+      - undangan-data:/data
+    expose:
+      - "3001"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3002:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  undangan-data:
