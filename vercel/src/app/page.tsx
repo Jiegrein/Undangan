@@ -463,7 +463,7 @@ export default function Home() {
     return (
       <div key={inviter} className="mb-4">
         <div
-          className="flex items-center justify-between p-4 bg-gray-800 rounded-xl cursor-pointer"
+          className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 bg-gray-800 rounded-xl cursor-pointer"
           onClick={() => toggleInvitedByCollapse(inviter)}
         >
           <div className="flex items-center gap-2">
@@ -472,9 +472,11 @@ export default function Home() {
             </span>
             <span className="text-lg font-semibold text-white">{inviter}</span>
           </div>
-          <span className="px-3 py-1 bg-emerald-900/50 text-emerald-300 rounded-full text-sm font-medium">
-            {totalInviterPax} pax
-          </span>
+          <div className="flex items-center gap-2 mt-2 ml-6 sm:mt-0 sm:ml-0">
+            <span className="px-3 py-1 bg-emerald-900/50 text-emerald-300 rounded-full text-sm font-medium">
+              {totalInviterPax} pax
+            </span>
+          </div>
         </div>
 
         {!isCollapsed && (
